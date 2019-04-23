@@ -1,9 +1,6 @@
 // 
+//  some modifications on the library, to support the new interface
 // 
-// 
-
-
-//
 
 #include "FSWebServerLib.h"
 #include <StreamString.h>
@@ -24,22 +21,14 @@ String _Version = "0.00a";
 
 AsyncFSWebServer::AsyncFSWebServer(uint16_t port) : AsyncWebServer(port) {}
 
-/*void AsyncFSWebServer::secondTick()
-{
-_secondFlag = true;
-}*/
-
-/*void AsyncFSWebServer::secondTask() {
-//DEBUGLOG("%s\r\n", NTP.getTimeDateString().c_str());
-sendTimeData();
-}*/
-
+/*
 void AsyncFSWebServer::s_secondTick(void* arg) {
 	AsyncFSWebServer* self = reinterpret_cast<AsyncFSWebServer*>(arg);
 	if (self->_evs.count() > 0) {
 		self->sendTimeData();
 	}
 }
+*/
 
 void AsyncFSWebServer::sendTimeData() {
 	String data = "{";
@@ -50,7 +39,7 @@ void AsyncFSWebServer::sendTimeData() {
 	data += "\"lastBoot\":\"" + NTP.getTimeDateString(NTP.getLastBootTime()) + "\"";
 	data += "}\r\n";
 	DEBUGLOG(data.c_str());
-	_evs.send(data.c_str(), "timeDate");
+	//_evs.send(data.c_str(), "timeDate");
 	DEBUGLOG("%s\r\n", NTP.getTimeDateString().c_str());
 	data = String();
 	//DEBUGLOG(__PRETTY_FUNCTION__);
@@ -72,26 +61,43 @@ String formatBytes(size_t bytes) {
 	}
 }
 
-void flashLED(int pin, int times, int delayTime) {
+void sched_flashLED(int pin, int times, int delayTime) {
 	int oldState = digitalRead(pin);
-	DEBUGLOG("---Flash LED during %d ms %d times. Old state = %d\r\n", delayTime, times, oldState);
+	
 
 	for (int i = 0; i < times; i++) {
 		digitalWrite(pin, LOW); // Turn on LED
 		delay(delayTime);
-		digitalWrite(pin, HIGH); // Turn on LED
+		digitalWrite(pin, HIGH); // Turn off LED
 		delay(delayTime);
 	}
-	digitalWrite(pin, oldState); // Turn on LED
+	digitalWrite(pin, oldState); // Turn how it was LED
 }
+
+void flashLED(int pin, int times, int delayTime) {
+	int oldState = digitalRead(pin);
+	DEBUGLOG("---Flash LED during %d ms %d times. Old state = %d\r\n", delayTime, times, oldState);
+	schedule_function(std::bind(sched_flashLED, pin, times, delayTime));
+}
+
+
+
+///////////////////////////////////////
+//
+// ENTRY POINT
+//
+//////////////////////////////////////
 
 void AsyncFSWebServer::begin(FS* fs) {
 	_fs = fs;
-	DBG_OUTPUT_PORT.begin(115200);
-	DBG_OUTPUT_PORT.print("\n\n");
-#ifndef RELEASE
-	DBG_OUTPUT_PORT.setDebugOutput(true);
-#endif // RELEASE
+	if (!DBG_OUTPUT_PORT) {
+		DBG_OUTPUT_PORT.begin(115200);
+		DBG_OUTPUT_PORT.print("\n\n");
+	#ifndef RELEASE
+		DBG_OUTPUT_PORT.setDebugOutput(true);
+	#endif // RELEASE
+	}
+	
 	// NTP client setup
 	if (CONNECTION_LED >= 0) {
 		pinMode(CONNECTION_LED, OUTPUT); // CONNECTION_LED pin defined as output
@@ -130,15 +136,11 @@ void AsyncFSWebServer::begin(FS* fs) {
 	}
 	loadHTTPAuth();
 	//WIFI INIT
-	if (_config.updateNTPTimeEvery > 0) { // Enable NTP sync
-		NTP.begin(_config.ntpServerName, _config.timezone / 10, _config.daylight);
-		NTP.setInterval(15, _config.updateNTPTimeEvery * 60);
-	}
+
 	// Register wifi Event to control connection LED
 	onStationModeConnectedHandler = WiFi.onStationModeConnected([this](WiFiEventStationModeConnected data) {
 		this->onWiFiConnected(data);
 	});
-
 
 	onStationModeDisconnectedHandler = WiFi.onStationModeDisconnected([this](WiFiEventStationModeDisconnected data) {
 		this->onWiFiDisconnected(data);
@@ -148,6 +150,7 @@ void AsyncFSWebServer::begin(FS* fs) {
 		this->onWiFiConnectedGotIP(data);
 	});
 
+	
 
 	WiFi.hostname(_config.deviceName.c_str());
 	if (AP_ENABLE_BUTTON >= 0) {
@@ -161,20 +164,33 @@ void AsyncFSWebServer::begin(FS* fs) {
 	else {
 		configureWifi(); // Set WiFi config
 	}
-	DEBUGLOG("Open http://");
-	DEBUGLOG(_config.deviceName.c_str());
-	DEBUGLOG(".local/edit to see the file browser\r\n");
+  	
+
+
+	//
+	// get ip. If the Wifi ip is 0, then use the SoftAP IP
+	//
+	IPAddress ip = WiFi.localIP();
+
+	/*
+	if (ip[0] == 0 && ip[1] == 0 && ip[2] == 0 && ip[3] == 0) {
+		ip = WiFi.softAPIP();
+	}
+	*/
+	DEBUGLOG("MAC Addr: %s\n", AsyncFSWebServer::getMacAddress().c_str());
+	DEBUGLOG("Open http://%d.%d.%d.%d/ to manage the CatFeeder\r\n", ip[0], ip[1], ip[2], ip[3]);
 	DEBUGLOG("Flash chip size: %u\r\n", ESP.getFlashChipRealSize());
 	DEBUGLOG("Scketch size: %u\r\n", ESP.getSketchSize());
 	DEBUGLOG("Free flash space: %u\r\n", ESP.getFreeSketchSpace());
 
-	_secondTk.attach(1.0f, &AsyncFSWebServer::s_secondTick, static_cast<void*>(this)); // Task to run periodic things every second
+	// don't connect this (JMC)
+	//_secondTk.attach(1.0f, &AsyncFSWebServer::s_secondTick, static_cast<void*>(this)); // Task to run periodic things every second
 
 	AsyncWebServer::begin();
 	serverInit(); // Configure and start Web server
 
-	MDNS.begin(_config.deviceName.c_str()); // I've not got this to work. Need some investigation.
-	MDNS.addService("http", "tcp", 80);
+	//MDNS.begin(_config.deviceName.c_str()); // I've not got this to work. Need some investigation.
+	//MDNS.addService("http", "tcp", 80);
 	ConfigureOTA(_httpAuth.wwwPassword.c_str());
 	DEBUGLOG("END Setup\n");
 }
@@ -250,20 +266,21 @@ bool AsyncFSWebServer::load_config() {
 
 void AsyncFSWebServer::defaultConfig() {
 	// DEFAULT CONFIG
-	_config.ssid = "YOUR_DEFAULT_WIFI_SSID";
+	_config.ssid = "YOUR_DEFAULT_WIFI_USER";
 	_config.password = "YOUR_DEFAULT_WIFI_PASSWD";
-	_config.dhcp = 1;
-	_config.ip = IPAddress(192, 168, 1, 4);
+	_config.dhcp = 0;
+	_config.ip = IPAddress(192, 168, 1, 1);
 	_config.netmask = IPAddress(255, 255, 255, 0);
-	_config.gateway = IPAddress(192, 168, 1, 1);
-	_config.dns = IPAddress(192, 168, 1, 1);
-	_config.ntpServerName = "pool.ntp.org";
+	_config.gateway = IPAddress(192, 168, 1, 2);
+	_config.dns = IPAddress(8, 8, 8, 8);
+	_config.ntpServerName = "es.pool.ntp.org";
 	_config.updateNTPTimeEvery = 15;
 	_config.timezone = 10;
 	_config.daylight = 1;
-	_config.deviceName = "ESP8266fs";
+	_config.deviceName = "CatFeeder";
 	//config.connectionLed = CONNECTION_LED;
-	save_config();
+	//load default, but not save it in order to keep as AP (initial configuration)
+	//save_config();
 	DEBUGLOG(__PRETTY_FUNCTION__);
 	DEBUGLOG("\r\n");
 }
@@ -563,6 +580,9 @@ void AsyncFSWebServer::configureWifiAP() {
 	//WiFi.disconnect();
 	WiFi.mode(WIFI_AP);
 	String APname = _apConfig.APssid + (String)ESP.getChipId();
+
+  	DEBUGLOG("Setting AP configuration ...\r\n");
+  	WiFi.softAPConfig(_config.ip, _config.gateway, _config.netmask);
 	if (_httpAuth.auth) {
 		WiFi.softAP(APname.c_str(), _httpAuth.wwwPassword.c_str());
 		DEBUGLOG("AP Pass enabled: %s\r\n", _httpAuth.wwwPassword.c_str());
@@ -574,6 +594,18 @@ void AsyncFSWebServer::configureWifiAP() {
 	if (CONNECTION_LED >= 0) {
 		flashLED(CONNECTION_LED, 3, 250);
 	}
+	IPAddress ip = WiFi.softAPIP();
+	DEBUGLOG("AP IP address = %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
+	
+	/* on AP, there's no possible to call NTP directy */
+	/*
+	if (_config.updateNTPTimeEvery > 0) { // Enable NTP sync
+		NTP.begin(_config.ntpServerName, _config.timezone / 10, _config.daylight);
+		NTP.setInterval(15, _config.updateNTPTimeEvery * 60);
+		DEBUGLOG("NTP Last Sync: %s\n", NTP.getTimeDateString(NTP.getLastNTPSync()).c_str());
+
+	}
+	*/
 }
 
 void AsyncFSWebServer::configureWifi() {
@@ -590,11 +622,31 @@ void AsyncFSWebServer::configureWifi() {
 	DBG_OUTPUT_PORT.printf("Connecting to %s\r\n", _config.ssid.c_str());
 	WiFi.begin(_config.ssid.c_str(), _config.password.c_str());
 	if (!_config.dhcp) {
-		DEBUGLOG("NO DHCP\r\n");
+		DEBUGLOG("NO DHCP - Use static connection\r\n");
 		WiFi.config(_config.ip, _config.gateway, _config.netmask, _config.dns);
 	}
 
-	WiFi.waitForConnectResult();
+	switch( WiFi.waitForConnectResult() ) {
+		case WL_CONNECTED:
+			if (_config.updateNTPTimeEvery > 0) { // Enable NTP sync
+				
+				// NTP.setNTPTimeout (1500); // for version 6
+				// NTP.begin(_config.ntpServerName, _config.timezone / 10, true, _config.daylight); // for version 6
+				AsyncFSWebServer::ConfigureNTP();
+				//NTP.setInterval (63);
+				//NTP.begin(_config.ntpServerName, _config.timezone / 10, _config.daylight);
+				//NTP.setInterval(15, _config.updateNTPTimeEvery * 60);
+				
+			}
+			break;
+		case WL_NO_SSID_AVAIL:
+		case WL_CONNECT_FAILED:
+			DEBUGLOG("Can't connect to SSID\n");
+		break;
+	}
+	
+
+
 
 
 }
@@ -657,11 +709,13 @@ void AsyncFSWebServer::onWiFiConnectedGotIP(WiFiEventStationModeGotIP data) {
 	//turnLedOn();
 	wifiDisconnectedSince = 0;
 	//force NTPsstart after got ip
+	/*
 	if (_config.updateNTPTimeEvery > 0) { // Enable NTP sync
 		NTP.begin(_config.ntpServerName, _config.timezone / 10, _config.daylight);
 		NTP.setInterval(15, _config.updateNTPTimeEvery * 60);
-		Serial.println(NTP.getLastNTPSync());
+		DEBUGLOG("NTP Last Sync: %s\n", NTP.getTimeDateString(NTP.getLastNTPSync()).c_str());
 	}
+	*/
 
 }
 
@@ -678,8 +732,40 @@ void AsyncFSWebServer::onWiFiDisconnected(WiFiEventStationModeDisconnected data)
 	if (wifiDisconnectedSince == 0) {
 		wifiDisconnectedSince = millis();
 	}
-	DEBUGLOG("\r\nDisconnected for %d seconds\r\n", (int)((millis() - wifiDisconnectedSince) / 1000));
+	
+	int timeout = (int)((millis() - wifiDisconnectedSince) / 1000);
+	DEBUGLOG("\r\nDisconnected for %d seconds\r\n", timeout);
+
+
+	if (timeout > WIFI_CONNECT_TIMEOUT_TO_AP) {
+		DEBUGLOG("%d seconds timeout. removing configuration file, creating AP\n", timeout);
+		AsyncFSWebServer::clean_configuration_and_reboot_as_ap();
+	}
+
 }
+
+String getContentType(String filename, AsyncWebServerRequest *request) {
+	if (request->hasArg("download")) return "application/octet-stream";
+	else if (filename.endsWith(".htm")) return "text/html";
+	else if (filename.endsWith(".html")) return "text/html";
+	else if (filename.endsWith(".css")) return "text/css";
+	else if (filename.endsWith(".js")) return "application/javascript";
+	else if (filename.endsWith(".json")) return "application/json";
+	else if (filename.endsWith(".png")) return "image/png";
+	else if (filename.endsWith(".gif")) return "image/gif";
+	else if (filename.endsWith(".jpg")) return "image/jpeg";
+	else if (filename.endsWith(".ico")) return "image/x-icon";
+	else if (filename.endsWith(".xml")) return "text/xml";
+	else if (filename.endsWith(".pdf")) return "application/x-pdf";
+	else if (filename.endsWith(".zip")) return "application/x-zip";
+	else if (filename.endsWith(".gz")) return "application/x-gzip";
+	return "text/plain";
+}
+
+/////////////////////////////////////////////////////////////////////////////////////
+/// HANDLERS ////////////////////////////////////////////////////////////////////////
+/// For the /edit/ application //////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
 
 void AsyncFSWebServer::handleFileList(AsyncWebServerRequest *request) {
 	if (!request->hasArg("dir")) { request->send(500, "text/plain", "BAD ARGS"); return; }
@@ -711,24 +797,6 @@ void AsyncFSWebServer::handleFileList(AsyncWebServerRequest *request) {
 	request->send(200, "text/json", output);
 }
 
-String getContentType(String filename, AsyncWebServerRequest *request) {
-	if (request->hasArg("download")) return "application/octet-stream";
-	else if (filename.endsWith(".htm")) return "text/html";
-	else if (filename.endsWith(".html")) return "text/html";
-	else if (filename.endsWith(".css")) return "text/css";
-	else if (filename.endsWith(".js")) return "application/javascript";
-	else if (filename.endsWith(".json")) return "application/json";
-	else if (filename.endsWith(".png")) return "image/png";
-	else if (filename.endsWith(".gif")) return "image/gif";
-	else if (filename.endsWith(".jpg")) return "image/jpeg";
-	else if (filename.endsWith(".ico")) return "image/x-icon";
-	else if (filename.endsWith(".xml")) return "text/xml";
-	else if (filename.endsWith(".pdf")) return "application/x-pdf";
-	else if (filename.endsWith(".zip")) return "application/x-zip";
-	else if (filename.endsWith(".gz")) return "application/x-gzip";
-	return "text/plain";
-}
-
 bool AsyncFSWebServer::handleFileRead(String path, AsyncWebServerRequest *request) {
 	DEBUGLOG("handleFileRead: %s\r\n", path.c_str());
 	if (CONNECTION_LED >= 0) {
@@ -736,7 +804,7 @@ bool AsyncFSWebServer::handleFileRead(String path, AsyncWebServerRequest *reques
 		flashLED(CONNECTION_LED, 1, 25); // Show activity on LED
 	}
 	if (path.endsWith("/"))
-		path += "index.htm";
+		path += "index.html";
 	String contentType = getContentType(path, request);
 	String pathWithGz = path + ".gz";
 	if (_fs->exists(pathWithGz) || _fs->exists(path)) {
@@ -827,6 +895,11 @@ void AsyncFSWebServer::handleFileUpload(AsyncWebServerRequest *request, String f
 	}
 }
 
+/////////////////////////////////////////////////////////////////////////////////////
+/// JSON/Data helpers ///////////////////////////////////////////////////////////////
+/// Methods to create JSON data and utility (config and so on) //////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
+
 void AsyncFSWebServer::send_general_configuration_values_html(AsyncWebServerRequest *request) {
 	String values = "";
 	values += "devicename|" + (String)_config.deviceName + "|input\n";
@@ -901,6 +974,7 @@ void AsyncFSWebServer::send_information_values_html(AsyncWebServerRequest *reque
 	values += "x_gateway|" + (String)WiFi.gatewayIP()[0] + "." + (String)WiFi.gatewayIP()[1] + "." + (String)WiFi.gatewayIP()[2] + "." + (String)WiFi.gatewayIP()[3] + "|div\n";
 	values += "x_netmask|" + (String)WiFi.subnetMask()[0] + "." + (String)WiFi.subnetMask()[1] + "." + (String)WiFi.subnetMask()[2] + "." + (String)WiFi.subnetMask()[3] + "|div\n";
 	values += "x_mac|" + getMacAddress() + "|div\n";
+	values += "x_dhcp|" + (String)(_config.dhcp ? "Enabled" : "Disabled") + "|div\n";
 	values += "x_dns|" + (String)WiFi.dnsIP()[0] + "." + (String)WiFi.dnsIP()[1] + "." + (String)WiFi.dnsIP()[2] + "." + (String)WiFi.dnsIP()[3] + "|div\n";
 	values += "x_ntp_sync|" + NTP.getTimeDateString(NTP.getLastNTPSync()) + "|div\n";
 	values += "x_ntp_time|" + NTP.getTimeStr() + "|div\n";
@@ -936,6 +1010,8 @@ void AsyncFSWebServer::send_NTP_configuration_values_html(AsyncWebServerRequest 
 	DEBUGLOG("\r\n");
 
 }
+
+
 
 // convert a single hex digit character to its integer value (from https://code.google.com/p/avr-netino/)
 unsigned char AsyncFSWebServer::h2int(char c) {
@@ -1083,33 +1159,35 @@ void AsyncFSWebServer::send_NTP_configuration_html(AsyncWebServerRequest *reques
 		for (uint8_t i = 0; i < request->args(); i++) {
 			if (request->argName(i) == "ntpserver") {
 				_config.ntpServerName = urldecode(request->arg(i));
-				NTP.setNtpServerName(_config.ntpServerName);
+				//NTP.setNtpServerName(_config.ntpServerName);
 				continue;
 			}
 			if (request->argName(i) == "update") {
 				_config.updateNTPTimeEvery = request->arg(i).toInt();
-				NTP.setInterval(_config.updateNTPTimeEvery * 60);
+				//NTP.setInterval(_config.updateNTPTimeEvery * 60);
 				continue;
 			}
 			if (request->argName(i) == "tz") {
 				_config.timezone = request->arg(i).toInt();
-				NTP.setTimeZone(_config.timezone / 10);
+				//NTP.setTimeZone(_config.timezone / 10);
 				continue;
 			}
 			if (request->argName(i) == "dst") {
 				_config.daylight = true;
-				DEBUGLOG("Daylight Saving: %d\r\n", _config.daylight);
+				//DEBUGLOG("Daylight Saving: %d\r\n", _config.daylight);
 				continue;
 			}
 		}
 
-		NTP.setDayLight(_config.daylight);
+		//NTP.setDayLight(_config.daylight);
 		save_config();
 		//firstStart = true;
-
-		setTime(NTP.getTime()); //set time
+		//setTime(NTP.getTime()); //set time
+		this->ConfigureNTP();
+		ESP.restart();
 	}
-	handleFileRead("/ntp.html", request);
+
+	handleFileRead("/net_ntp.html", request);
 	//server.send(200, "text/html", PAGE_NTPConfiguration);
 	DEBUGLOG(__PRETTY_FUNCTION__);
 	DEBUGLOG("\r\n");
@@ -1164,7 +1242,7 @@ void AsyncFSWebServer::send_wwwauth_configuration_html(AsyncWebServerRequest *re
 
 		saveHTTPAuth();
 	}
-	handleFileRead("/system.html", request);
+	handleFileRead("/net_auth.html", request);
 
 	//DEBUGLOG(__PRETTY_FUNCTION__);
 	//DEBUGLOG("\r\n");
@@ -1386,6 +1464,12 @@ void AsyncFSWebServer::post_rest_config(AsyncWebServerRequest *request) {
 
 }
 
+/////////////////////////////////////////////////////////////////////////////////////
+/// URL Interceptors ////////////////////////////////////////////////////////////////
+/// Define URL interceptors. Go from more specific (top) to less specific ///////////
+/// this are due to a strcmp way to do that. ej. /admin/xx/yy, /admin/xx ////////////
+/// last one put /admin interceptor /////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
 
 void AsyncFSWebServer::serverInit() {
 	//SERVER INIT
@@ -1443,7 +1527,7 @@ void AsyncFSWebServer::serverInit() {
 			return request->requestAuthentication();
 		this->send_NTP_configuration_values_html(request);
 	});
-	on("/config.html", [this](AsyncWebServerRequest *request) {
+	on("/net_config.html", [this](AsyncWebServerRequest *request) {
 		if (!this->checkAuth(request))
 			return request->requestAuthentication();
 		this->send_network_configuration_html(request);
@@ -1475,12 +1559,12 @@ void AsyncFSWebServer::serverInit() {
 		request->send(200, "text/json", json);
 		json = "";
 	});
-	on("/general.html", [this](AsyncWebServerRequest *request) {
+	on("/sys_config.html", [this](AsyncWebServerRequest *request) {
 		if (!this->checkAuth(request))
 			return request->requestAuthentication();
 		this->send_general_configuration_html(request);
 	});
-	on("/ntp.html", [this](AsyncWebServerRequest *request) {
+	on("/net_ntp.html", [this](AsyncWebServerRequest *request) {
 		if (!this->checkAuth(request))
 			return request->requestAuthentication();
 		this->send_NTP_configuration_html(request);
@@ -1496,17 +1580,32 @@ void AsyncFSWebServer::serverInit() {
 			return request->requestAuthentication();
 		this->send_wwwauth_configuration_values_html(request);
 	});
+
+	// custom (new handlers) JMC
+	on("/admin/cleanap", HTTP_GET, [this](AsyncWebServerRequest *request) {
+		if (!this->checkAuth(request))
+			return request->requestAuthentication();
+		
+		AsyncWebServerResponse *response = request->beginResponse(200, "text/html", "<META http-equiv=\"refresh\" content=\"15;URL=/index.html\">Cleaning config and restarting as AP...");
+		response->addHeader("Connection", "close");
+		response->addHeader("Access-Control-Allow-Origin", "*");
+		request->send(response);
+		this->clean_configuration_and_reboot_as_ap();
+
+	});
+
 	on("/admin", [this](AsyncWebServerRequest *request) {
 		if (!this->checkAuth(request))
 			return request->requestAuthentication();
 		if (!this->handleFileRead("/admin.html", request))
 			request->send(404, "text/plain", "FileNotFound");
 	});
-	on("/system.html", [this](AsyncWebServerRequest *request) {
+	on("/net_auth.html", [this](AsyncWebServerRequest *request) {
 		if (!this->checkAuth(request))
 			return request->requestAuthentication();
 		this->send_wwwauth_configuration_html(request);
 	});
+	
 	on("/update/updatepossible", [this](AsyncWebServerRequest *request) {
 		if (!this->checkAuth(request))
 			return request->requestAuthentication();
@@ -1549,6 +1648,11 @@ void AsyncFSWebServer::serverInit() {
 		this->post_rest_config(request);
 	});
 
+
+	/////////////////////////////////////////////////////////////////////////////////////
+	/// URL Callbacks ///////////////////////////////////////////////////////////////////
+	/// Define here your custom callbacks to put outside the library ////////////////////
+	/////////////////////////////////////////////////////////////////////////////////////
 
 	on("/json", [this](AsyncWebServerRequest *request) {
 		if (!this->checkAuth(request))
@@ -1596,6 +1700,25 @@ void AsyncFSWebServer::serverInit() {
 		}
 
 	});
+	
+	// JMC new callback for CatFeeder
+	on(this->_usercallbackfilter.c_str(), [this](AsyncWebServerRequest *request) {
+	
+	if (!this->checkAuth(request))
+		return request->requestAuthentication();
+	if (usercallback)
+	{
+		this->usercallback(request);
+	}
+	else
+	{
+		String values = "";
+		request->send(200, "text/plain", values);
+		values = "";
+	}
+
+	});
+
 
 	//called when the url is not defined here
 	//use it to load content from SPIFFS
@@ -1611,10 +1734,10 @@ void AsyncFSWebServer::serverInit() {
 		delete response; // Free up memory!
 	});
 
-	_evs.onConnect([](AsyncEventSourceClient* client) {
-		DEBUGLOG("Event source client connected from %s\r\n", client->client()->remoteIP().toString().c_str());
-	});
-	addHandler(&_evs);
+	//_evs.onConnect([](AsyncEventSourceClient* client) {
+	//	DEBUGLOG("Event source client connected from %s\r\n", client->client()->remoteIP().toString().c_str());
+	//});
+	//addHandler(&_evs);
 
 #define HIDE_SECRET
 #ifdef HIDE_SECRET
@@ -1663,6 +1786,40 @@ void AsyncFSWebServer::serverInit() {
 	DEBUGLOG("HTTP server started\r\n");
 }
 
+
+/////////////////////////////////////////////////////////////////////////////////////
+/// JMC IMPLEMENTATIONS//////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
+
+// simple function to configure the NTP client.
+void AsyncFSWebServer::ConfigureNTP() {
+	NTP.setInterval (63);
+	NTP.begin(_config.ntpServerName, _config.timezone / 10, _config.daylight);
+	NTP.setInterval(15, _config.updateNTPTimeEvery * 60);
+	DEBUGLOG("NTP Last Sync: %s\n", NTP.getTimeDateString(NTP.getLastNTPSync()).c_str());
+}
+
+// clean the configuration files and enable AP.
+void AsyncFSWebServer::clean_configuration_and_reboot_as_ap() {
+		DEBUGLOG("Cleaning configuration and rebooting as AP");
+		this->_fs->remove("/config.json");
+		this->_fs->remove("/secret.json");
+		this->_fs->end();
+		ESP.restart();
+}
+
+// configure the filter to call the user callback
+// e.g. /catfeeder
+void AsyncFSWebServer::set_usercallbackfilter(String s) {
+	this->_usercallbackfilter = s;
+}
+
+
+
+
+
+
+
 bool AsyncFSWebServer::checkAuth(AsyncWebServerRequest *request) {
 	if (!_httpAuth.auth) {
 		return true;
@@ -1676,6 +1833,11 @@ bool AsyncFSWebServer::checkAuth(AsyncWebServerRequest *request) {
 const char* AsyncFSWebServer::getHostName() {
 	return _config.deviceName.c_str();
 }
+
+
+/////////////////////////////////////////////////////////////////////////////////////
+/// Set Callbacks ///////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
 
 AsyncFSWebServer& AsyncFSWebServer::setJSONCallback(JSON_CALLBACK_SIGNATURE) {
 	this->jsoncallback = jsoncallback;
@@ -1692,8 +1854,17 @@ AsyncFSWebServer& AsyncFSWebServer::setPOSTCallback(POST_CALLBACK_SIGNATURE) {
 	return *this;
 }
 
+// JMC (support for user defined callback e.g. /catfeeder)
+AsyncFSWebServer& AsyncFSWebServer::setUSERCallback(USER_CALLBACK_SIGNATURE) {
+	this->usercallback = usercallback;
+	return *this;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////
+/// To expose internal values or API (e.g. config) //////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
+
 void AsyncFSWebServer::setUSERVERSION(String Version) {
 	_Version = Version;
 }
-
 

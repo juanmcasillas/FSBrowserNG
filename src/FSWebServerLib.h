@@ -21,7 +21,10 @@
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 
- #define RELEASE  // Comment to enable debug output
+//#define RELEASE  // Comment to enable debug output
+
+// timeout in seconds to convert to AP
+#define WIFI_CONNECT_TIMEOUT_TO_AP 60 
 
 #define DBG_OUTPUT_PORT Serial
 
@@ -32,7 +35,10 @@
 #endif
 
 #define CONNECTION_LED 2 // Connection LED pin (Built in). -1 to disable
-#define AP_ENABLE_BUTTON 4 // Button pin to enable AP during startup for configuration. -1 to disable
+// in NodeMCU -> 4 is D2
+// Use 13 -> D7
+//#define AP_ENABLE_BUTTON 4 // (D2) // Button pin to enable AP during startup for configuration. -1 to disable
+#define AP_ENABLE_BUTTON 13 // (D7) // Button pin to enable AP during startup for configuration. -1 to disable
 
 // #define HIDE_CONFIG
 #define CONFIG_FILE "/config.json"
@@ -40,9 +46,14 @@
 #define GENERIC_CONFIG_FILE "/genericconfig.json"
 #define SECRET_FILE "/secret.json"
 
+#define DEFAULT_AP_SSID "CATF"
+#define DEFAULT_AP_PASSWORD "12345678"
+
 #define JSON_CALLBACK_SIGNATURE std::function<void(AsyncWebServerRequest *request)> jsoncallback
 #define REST_CALLBACK_SIGNATURE std::function<void(AsyncWebServerRequest *request)> restcallback
 #define POST_CALLBACK_SIGNATURE std::function<void(AsyncWebServerRequest *request)> postcallback
+#define USER_CALLBACK_SIGNATURE std::function<void(AsyncWebServerRequest *request)> usercallback
+
 
 typedef struct {
     String ssid;
@@ -60,8 +71,8 @@ typedef struct {
 } strConfig;
 
 typedef struct {
-    String APssid = "ESP"; // ChipID is appended to this name
-    String APpassword = "12345678";
+    String APssid = DEFAULT_AP_SSID; // ChipID is appended to this name
+    String APpassword = DEFAULT_AP_PASSWORD;
     bool APenable = false; // AP disabled by default
 } strApConfig;
 
@@ -81,7 +92,9 @@ public:
 	AsyncFSWebServer& setJSONCallback(JSON_CALLBACK_SIGNATURE);
 	AsyncFSWebServer& setRESTCallback(REST_CALLBACK_SIGNATURE);
 	AsyncFSWebServer& setPOSTCallback(POST_CALLBACK_SIGNATURE);
-	void setUSERVERSION(String Version);
+    AsyncFSWebServer& setUSERCallback(USER_CALLBACK_SIGNATURE);
+	
+    void setUSERVERSION(String Version);
 
 	bool save_user_config(String name, String value);
 	bool load_user_config(String name, String &value);
@@ -93,11 +106,17 @@ public:
 	bool load_user_config(String name, long &value);
 	static String urldecode(String input); // (based on https://code.google.com/p/avr-netino/)
 
+// jmc new methods
+    void clean_configuration_and_reboot_as_ap();
+    void set_usercallbackfilter(String s);
+    void ConfigureNTP();
+
 
 private:
 	JSON_CALLBACK_SIGNATURE;
 	REST_CALLBACK_SIGNATURE;
 	POST_CALLBACK_SIGNATURE;
+    USER_CALLBACK_SIGNATURE;
 
 protected:
     strConfig _config; // General and WiFi configuration
@@ -107,15 +126,16 @@ protected:
     long wifiDisconnectedSince = 0;
     String _browserMD5 = "";
     uint32_t _updateSize = 0;
+    String _usercallbackfilter = "/usercallbackfilter";
 
 	WiFiEventHandler onStationModeConnectedHandler, onStationModeDisconnectedHandler, onStationModeGotIPHandler;
 
     //uint currentWifiStatus;
+    // don't configure this ticker
+    //Ticker _secondTk;
+    //bool _secondFlag;
 
-    Ticker _secondTk;
-    bool _secondFlag;
-
-    AsyncEventSource _evs = AsyncEventSource("/events");
+    //AsyncEventSource _evs = AsyncEventSource("/events");
 
     void sendTimeData();
     bool load_config();
@@ -133,7 +153,7 @@ protected:
 	void onWiFiDisconnected(WiFiEventStationModeDisconnected data);
 	void onWiFiConnectedGotIP(WiFiEventStationModeGotIP data);
 
-    static void s_secondTick(void* arg);
+    //static void s_secondTick(void* arg);
 
     String getMacAddress();
 
@@ -160,8 +180,8 @@ protected:
     void updateFirmware(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 	void handle_rest_config(AsyncWebServerRequest *request);
 	void post_rest_config(AsyncWebServerRequest *request);
-	
 
+    
  //   static String urldecode(String input); // (based on https://code.google.com/p/avr-netino/)
     static unsigned char h2int(char c);
     static boolean checkRange(String Value);
