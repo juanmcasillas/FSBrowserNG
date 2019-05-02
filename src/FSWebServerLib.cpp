@@ -171,13 +171,11 @@ void AsyncFSWebServer::begin(FS* fs) {
 	// get ip. If the Wifi ip is 0, then use the SoftAP IP
 	//
 	IPAddress ip = WiFi.localIP();
-
-	/*
-	if (ip[0] == 0 && ip[1] == 0 && ip[2] == 0 && ip[3] == 0) {
+	if (_apConfig.APenable || (ip[0] == 0 && ip[1] == 0 && ip[2] == 0 && ip[3] == 0)) {
 		ip = WiFi.softAPIP();
 	}
-	*/
-	DEBUGLOG("MAC Addr: %s\n", AsyncFSWebServer::getMacAddress().c_str());
+
+	DEBUGLOG("MAC Addr: %s\r\n", AsyncFSWebServer::getMacAddress().c_str());
 	DEBUGLOG("Open http://%d.%d.%d.%d/ to manage the CatFeeder\r\n", ip[0], ip[1], ip[2], ip[3]);
 	DEBUGLOG("Flash chip size: %u\r\n", ESP.getFlashChipRealSize());
 	DEBUGLOG("Scketch size: %u\r\n", ESP.getSketchSize());
@@ -384,7 +382,10 @@ bool AsyncFSWebServer::load_user_config(String name, String &value) {
 	Serial.println(temp);
 #endif
 
-	value = json[name].asString();
+	// JMC Deprecation Warning
+	//value = json[name].asString();
+	value = json[name].as<char *>();
+
 
 	DEBUGLOG("Data initialized.\r\n");
 	DEBUGLOG("SSID: %s ", _config.ssid.c_str());

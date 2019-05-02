@@ -21,7 +21,7 @@
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 
-//#define RELEASE  // Comment to enable debug output
+// #define RELEASE  // Comment to enable debug output
 
 // timeout in seconds to convert to AP
 #define WIFI_CONNECT_TIMEOUT_TO_AP 60 
