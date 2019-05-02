@@ -175,6 +175,7 @@ void AsyncFSWebServer::begin(FS* fs) {
 		ip = WiFi.softAPIP();
 	}
 
+
 	DEBUGLOG("MAC Addr: %s\r\n", AsyncFSWebServer::getMacAddress().c_str());
 	DEBUGLOG("Open http://%d.%d.%d.%d/ to manage the CatFeeder\r\n", ip[0], ip[1], ip[2], ip[3]);
 	DEBUGLOG("Flash chip size: %u\r\n", ESP.getFlashChipRealSize());
