@@ -187,6 +187,7 @@ void AsyncFSWebServer::begin(FS* fs) {
 
 	AsyncWebServer::begin();
 	serverInit(); // Configure and start Web server
+	
 
 	//MDNS.begin(_config.deviceName.c_str()); // I've not got this to work. Need some investigation.
 	//MDNS.addService("http", "tcp", 80);
@@ -1608,12 +1609,7 @@ void AsyncFSWebServer::serverInit() {
 
 	});
 
-	on("/admin", [this](AsyncWebServerRequest *request) {
-		if (!this->checkAuth(request))
-			return request->requestAuthentication();
-		if (!this->handleFileRead("/admin.html", request))
-			request->send(404, "text/plain", "FileNotFound");
-	});
+	
 	on("/net_auth.html", [this](AsyncWebServerRequest *request) {
 		if (!this->checkAuth(request))
 			return request->requestAuthentication();
@@ -1798,6 +1794,9 @@ void AsyncFSWebServer::serverInit() {
 	});
 	//server.begin(); --> Not here
 	DEBUGLOG("HTTP server started\r\n");
+
+	// server all the files not shown before as static ones
+	serveStatic("/", SPIFFS, "/").setCacheControl("max-age=31536000"); // a day 86400 // currently a year
 }
 
 
