@@ -76,7 +76,7 @@ void sched_flashLED(int pin, int times, int delayTime) {
 
 void flashLED(int pin, int times, int delayTime) {
 	int oldState = digitalRead(pin);
-	DEBUGLOG("---Flash LED during %d ms %d times. Old state = %d\r\n", delayTime, times, oldState);
+	//DEBUGLOG("---Flash LED during %d ms %d times. Old state = %d\r\n", delayTime, times, oldState);
 	schedule_function(std::bind(sched_flashLED, pin, times, delayTime));
 }
 
@@ -824,14 +824,14 @@ bool AsyncFSWebServer::handleFileRead(String path, AsyncWebServerRequest *reques
 		if (_fs->exists(pathWithGz)) {
 			path += ".gz";
 		}
-		DEBUGLOG("Content type: %s\r\n", contentType.c_str());
+		// DEBUGLOG("Content type: %s\r\n", contentType.c_str());
 		AsyncWebServerResponse *response = request->beginResponse(*_fs, path, contentType);
 		if (path.endsWith(".gz"))
 			response->addHeader("Content-Encoding", "gzip");
 		//File file = SPIFFS.open(path, "r");
-		DEBUGLOG("File %s exist\r\n", path.c_str());
+		//DEBUGLOG("File %s exist\r\n", path.c_str());
 		request->send(response);
-		DEBUGLOG("File %s Sent\r\n", path.c_str());
+		//DEBUGLOG("File %s Sent\r\n", path.c_str());
 
 		return true;
 	}
@@ -1737,7 +1737,7 @@ void AsyncFSWebServer::serverInit() {
 	//called when the url is not defined here
 	//use it to load content from SPIFFS
 	onNotFound([this](AsyncWebServerRequest *request) {
-		DEBUGLOG("Not found: %s\r\n", request->url().c_str());
+		//DEBUGLOG("Not found: %s\r\n", request->url().c_str());
 		if (!this->checkAuth(request))
 			return request->requestAuthentication();
 		AsyncWebServerResponse *response = request->beginResponse(200);
