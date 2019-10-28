@@ -67,9 +67,9 @@ void sched_flashLED(int pin, int times, int delayTime) {
 
 	for (int i = 0; i < times; i++) {
 		digitalWrite(pin, LOW); // Turn on LED
-		delay(delayTime);
+		//delay(delayTime);
 		digitalWrite(pin, HIGH); // Turn off LED
-		delay(delayTime);
+		//delay(delayTime);
 	}
 	digitalWrite(pin, oldState); // Turn how it was LED
 }
@@ -219,18 +219,19 @@ bool AsyncFSWebServer::load_config() {
 	configFile.readBytes(buf.get(), size);
 	configFile.close();
 	DEBUGLOG("191 JSON file size: %d bytes\r\n", size);
-	DynamicJsonBuffer jsonBuffer(1024);
+	StaticJsonDocument<1024> json;
 	//StaticJsonBuffer<1024> jsonBuffer;
-	JsonObject& json = jsonBuffer.parseObject(buf.get());
+	//JsonObject& json = jsonBuffer.parseObject(buf.get());
 
-	if (!json.success()) {
+	auto error = deserializeJson(json, buf.get());
+	if (error) {
 		DEBUGLOG("Failed to parse config file\r\n");
 		return false;
 	}
 #ifndef RELEASE
 	String temp;
-	json.prettyPrintTo(temp);
-	Serial.println(temp);
+	serializeJsonPretty(json, temp);
+	DEBUGLOG(temp.c_str());
 #endif
 
 	_config.ssid = json["ssid"].as<const char *>();
@@ -287,31 +288,32 @@ void AsyncFSWebServer::defaultConfig() {
 bool AsyncFSWebServer::save_config() {
 	//flag_config = false;
 	DEBUGLOG("Save config\r\n");
-	DynamicJsonBuffer jsonBuffer(512);
+	StaticJsonDocument<512> json;
 	//StaticJsonBuffer<1024> jsonBuffer;
-	JsonObject& json = jsonBuffer.createObject();
+	//JsonObject& json = jsonBuffer.createObject();
 	json["ssid"] = _config.ssid;
 	json["pass"] = _config.password;
+	JsonObject doc = json.to<JsonObject>();
 
-	JsonArray& jsonip = json.createNestedArray("ip");
+	JsonArray jsonip = doc.createNestedArray("ip");
 	jsonip.add(_config.ip[0]);
 	jsonip.add(_config.ip[1]);
 	jsonip.add(_config.ip[2]);
 	jsonip.add(_config.ip[3]);
 
-	JsonArray& jsonNM = json.createNestedArray("netmask");
+	JsonArray jsonNM = doc.createNestedArray("netmask");
 	jsonNM.add(_config.netmask[0]);
 	jsonNM.add(_config.netmask[1]);
 	jsonNM.add(_config.netmask[2]);
 	jsonNM.add(_config.netmask[3]);
 
-	JsonArray& jsonGateway = json.createNestedArray("gateway");
+	JsonArray jsonGateway = doc.createNestedArray("gateway");
 	jsonGateway.add(_config.gateway[0]);
 	jsonGateway.add(_config.gateway[1]);
 	jsonGateway.add(_config.gateway[2]);
 	jsonGateway.add(_config.gateway[3]);
 
-	JsonArray& jsondns = json.createNestedArray("dns");
+	JsonArray jsondns = doc.createNestedArray("dns");
 	jsondns.add(_config.dns[0]);
 	jsondns.add(_config.dns[1]);
 	jsondns.add(_config.dns[2]);
@@ -334,13 +336,15 @@ bool AsyncFSWebServer::save_config() {
 		return false;
 	}
 
+
 #ifndef RELEASE
 	String temp;
-	json.prettyPrintTo(temp);
-	Serial.println(temp);
+	serializeJsonPretty(json, Serial);
+	//Serial.println(temp);
 #endif
 
-	json.printTo(configFile);
+	serializeJson(json,configFile);
+	//json.printTo(configFile);
 	configFile.flush();
 	configFile.close();
 	return true;
@@ -369,18 +373,20 @@ bool AsyncFSWebServer::load_user_config(String name, String &value) {
 	configFile.readBytes(buf.get(), size);
 	configFile.close();
 	DEBUGLOG("340 JSON file size: %d bytes\r\n", size);
-	DynamicJsonBuffer jsonBuffer(1024);
+	StaticJsonDocument<1024> json;
 	//StaticJsonBuffer<1024> jsonBuffer;
-	JsonObject& json = jsonBuffer.parseObject(buf.get());
+	//JsonObject& json = jsonBuffer.parseObject(buf.get());
 
-	if (!json.success()) {
+    auto error = deserializeJson(json, buf.get());
+	if (error) {
+	//if (!json.success()) {
 		DEBUGLOG("Failed to parse config file\r\n");
 		return false;
 	}
 #ifndef RELEASE
 	String temp;
-	json.prettyPrintTo(temp);
-	Serial.println(temp);
+	serializeJsonPretty(json,Serial);
+	//Serial.println(temp);
 #endif
 
 	// JMC Deprecation Warning
@@ -441,11 +447,12 @@ bool AsyncFSWebServer::save_user_config(String name, String value) {
 	configFile.readBytes(buf.get(), size);
 	configFile.close();
 	DEBUGLOG("Read JSON file size: %d bytes\r\n", size);
-	DynamicJsonBuffer jsonBuffer(1024);
+	StaticJsonDocument<1024> json;
 	//StaticJsonBuffer<1024> jsonBuffer;
-	JsonObject& json = jsonBuffer.parseObject(buf.get());
+	//JsonObject& json = jsonBuffer.parseObject(buf.get());
 
-	if (!json.success()) {
+	auto error = deserializeJson(json, buf.get());
+	if (error) {
 		DEBUGLOG("Failed to parse config file\r\n");
 		return false;
 	}
@@ -466,11 +473,11 @@ bool AsyncFSWebServer::save_user_config(String name, String value) {
 #ifndef RELEASE
 	DEBUGLOG("Save user config \r\n");
 	String temp;
-	json.prettyPrintTo(temp);
-	Serial.println(temp);
+	serializeJsonPretty(json, Serial);
 #endif
 
-	json.printTo(configFile);
+	serializeJson(json, configFile);
+	//json.printTo(configFile);
 	configFile.flush();
 	configFile.close();
 	return true;
@@ -537,14 +544,17 @@ bool AsyncFSWebServer::loadHTTPAuth() {
 	configFile.readBytes(buf.get(), size);
 	configFile.close();
 	DEBUGLOG("JSON secret file size: %d bytes\n", size);
-	DynamicJsonBuffer jsonBuffer(256);
+	StaticJsonDocument<256> json;
 	//StaticJsonBuffer<256> jsonBuffer;
-	JsonObject& json = jsonBuffer.parseObject(buf.get());
+	//JsonObject& json = jsonBuffer.parseObject(buf.get());
 
-	if (!json.success()) {
+
+	auto error = deserializeJson(json, buf.get());
+	if (error) {
 #ifndef RELEASE
 		String temp;
-		json.prettyPrintTo(temp);
+		serializeJsonPretty(json, temp);
+		//json.prettyPrintTo(temp);
 		DBG_OUTPUT_PORT.println(temp);
 		DBG_OUTPUT_PORT.println("Failed to parse secret file");
 #endif // RELEASE
@@ -553,7 +563,8 @@ bool AsyncFSWebServer::loadHTTPAuth() {
 	}
 #ifndef RELEASE
 	String temp;
-	json.prettyPrintTo(temp);
+	serializeJsonPretty(json, temp);
+	//json.prettyPrintTo(temp);
 	DBG_OUTPUT_PORT.println(temp);
 #endif // RELEASE
 
@@ -1253,9 +1264,9 @@ void AsyncFSWebServer::send_wwwauth_configuration_html(AsyncWebServerRequest *re
 bool AsyncFSWebServer::saveHTTPAuth() {
 	//flag_config = false;
 	DEBUGLOG("Save secret\r\n");
-	DynamicJsonBuffer jsonBuffer(256);
+	StaticJsonDocument<256> json;
 	//StaticJsonBuffer<256> jsonBuffer;
-	JsonObject& json = jsonBuffer.createObject();
+	//JsonObject& json = jsonBuffer.createObject();
 	json["auth"] = _httpAuth.auth;
 	json["user"] = _httpAuth.wwwUsername;
 	json["pass"] = _httpAuth.wwwPassword;
@@ -1270,11 +1281,12 @@ bool AsyncFSWebServer::saveHTTPAuth() {
 
 #ifndef RELEASE
 	String temp;
-	json.prettyPrintTo(temp);
-	Serial.println(temp);
+	serializeJsonPretty(json,Serial);
+	//json.prettyPrintTo(temp);
+	//Serial.println(temp);
 #endif // RELEASE
-
-	json.printTo(configFile);
+	serializeJson(json,configFile);
+	//json.printTo(configFile);
 	configFile.flush();
 	configFile.close();
 	return true;
